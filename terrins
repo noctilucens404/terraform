@@ -1,0 +1,65 @@
+#__________________________________________Provider
+
+
+terraform {
+  required_providers {
+    docker = {
+      source  = "kreuzwerker/docker"
+      version = "3.0.2"
+    }
+  }
+}
+
+provider "docker" {
+  host = "unix:///var/run/docker.sock"
+}
+
+#__________________________________________Conteneur
+
+
+resource "docker_image" "jenkins" {
+  name         = "jenkins/jenkins:lts"
+  keep_locally = false
+}
+
+# Création de l'envrionnement de test
+resource "docker_container" "jenkins" {
+  image             = docker_image.jenkins.image_id
+  name              = "Jenkins"
+  must_run          = true
+  hostname = "jenkins-server"
+  network_mode = "bridge"
+  provisioner "local-exec" {
+      command = <<EOT
+        docker exec -u 0 Jenkins /bin/bash -c " echo 'nameserver 8.8.8.8' > /etc/resolv.conf"
+        docker exec -u 0 Jenkins /bin/bash -c "apt update"
+        docker exec -u 0 Jenkins /bin/bash -c "apt install sudo docker.io -y &>/dev/null"
+        docker exec -u 0 Jenkins /bin/bash -c "chgrp root /var/run/docker.sock"
+        docker exec -u 0 Jenkins /bin/bash -c "usermod -aG root jenkins && usermod -aG docker jenkins"
+        docker exec -u 0 Jenkins /bin/bash -c "echo 'jenkins ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers"
+        docker exec -u 0 Jenkins /bin/bash -c "service docker start"
+        docker restart Jenkins
+        docker exec -u 0 Jenkins /bin/bash -c " echo 'nameserver 8.8.8.8' > /etc/resolv.conf"
+        sleep 10
+      EOT
+   }
+
+  ports {
+    internal = 8080
+    external = 8080
+  }
+  ports {
+  internal = 50000
+  external = 50000
+  }
+  volumes {
+    volume_name    = "jenkins_home"
+    container_path = "/var/jenkins_home"
+  }
+  volumes {
+    host_path      = "/var/run/docker.sock"
+    container_path = "/var/run/docker.sock"
+  }
+
+    restart = "always"
+  }
